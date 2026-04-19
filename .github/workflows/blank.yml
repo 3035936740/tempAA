@@ -1,33 +1,57 @@
-name: Ardour Build for Windows
+name: Build Ardour for Windows
 
 on:
   push:
     branches: 
-      - windows
+      - main
+      - master
+      - develop
     paths-ignore:
       - 'README.md'
       - 'LICENSE'
+      - '.gitignore'
   pull_request:
     branches: 
-      - windows
+      - main
+      - master
     paths-ignore:
       - 'README.md'
       - 'LICENSE'
-  workflow_dispatch: 
-    types: ardour-windows-build
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+      upload_artifact:
+        description: 'Upload to artifact storage'
+        required: true
+        default: true
+        type: boolean
 
 env:
-  ARDOUR_VERSION: 6.9
-  UPLOAD_SERVICE: wetransfer.com
   MSYSTEM: MINGW64
   CHERE_INVOKING: 1
+  MSYS2_ARCH: x86_64
 
 jobs:
-  ardour-build:
-    name: Ardour Build for Windows
-    runs-on: windows-2019
+  build-ardour-windows:
+    name: Build Ardour for Windows
+    runs-on: windows-latest
+    timeout-minutes: 180
     
     steps:
+      # 1. 检出构建脚本仓库
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # 2. 设置 MSYS2 环境
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
@@ -38,232 +62,447 @@ jobs:
             git
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-make
             mingw-w64-x86_64-pkg-config
-            mingw-w64-x86_64-python3
-            mingw-w64-x86_64-python3-pip
-            mingw-w64-x86_64-libxml2
-            mingw-w64-x86_64-libsndfile
-            mingw-w64-x86_64-libsamplerate
-            mingw-w64-x86_64-fftw
-            mingw-w64-x86_64-aubio
-            mingw-w64-x86_64-cairomm
-            mingw-w64-x86_64-gtkmm3
-            mingw-w64-x86_64-librubberband
-            mingw-w64-x86_64-lilv
-            mingw-w64-x86_64-serd
-            mingw-w64-x86_64-sord
-            mingw-w64-x86_64-sratom
-            mingw-w64-x86_64-lv2
-            mingw-w64-x86_64-vamp-plugin-sdk
-            mingw-w64-x86_64-curl
-            mingw-w64-x86_64-cppunit
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-python-pip
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-meson
-            mingw-w64-x86_64-glib2
-            mingw-w64-x86_64-glibmm
-            mingw-w64-x86_64-liblo
-            mingw-w64-x86_64-portaudio
-            mingw-w64-x86_64-websocketpp
-            mingw-w64-x86_64-usrsctp
-            mingw-w64-x86_64-libsrtp
-            mingw-w64-x86_64-openssl
-            mingw-w64-x86_64-readline
-            mingw-w64-x86_64-libpcre2
-            mingw-w64-x86_64-libpcre2_16
-            mingw-w64-x86_64-libpcre2_32
-            mingw-w64-x86_64-libpcre2-posix
-            mingw-w64-x86_64-libzip
-            mingw-w64-x86_64-taglib
-            mingw-w64-x86_64-ffmpeg
-            mingw-w64-x86_64-aom
-            mingw-w64-x86_64-dav1d
-            mingw-w64-x86_64-x264
-            mingw-w64-x86_64-x265
-            mingw-w64-x86_64-libvpx
-            mingw-w64-x86_64-opus
-            mingw-w64-x86_64-libvorbis
-            mingw-w64-x86_64-flac
-            mingw-w64-x86_64-libogg
-            mingw-w64-x86_64-speex
-            mingw-w64-x86_64-speexdsp
-            mingw-w64-x86_64-libsndfile
-            mingw-w64-x86_64-rtmidi
-            mingw-w64-x86_64-portmidi
-            mingw-w64-x86_64-libinstpatch
-            mingw-w64-x86_64-libltc
-            mingw-w64-x86_64-libwebsockets
-            mingw-w64-x86_64-ntldd-git
             mingw-w64-x86_64-nsis
+            mingw-w64-x86_64-ntldd-git
 
-      - name: Checkout Build Tools
-        uses: actions/checkout@v2
-        with:
-          repository: ${{ github.repository }}
-          fetch-depth: 0
-          ref: windows
-          path: '.'
-
-      - name: Get Ardour Latest Release Source Code
-        uses: actions/checkout@v2
-        with:
-          repository: 'Ardour/ardour'
-          fetch-depth: 1
-          ref: ${{ env.ARDOUR_VERSION }}
-          path: './src'
-
-      - name: Prepare Build Scripts
+      # 3. 安装构建依赖
+      - name: Install build dependencies
         shell: msys2 {0}
         run: |
-          chmod a+x ${{ github.workspace }}/ci/waf
-          chmod a+x ${{ github.workspace }}/ci/waf.bat
-          chmod a+x ${{ github.workspace }}/ci/win-wscript
-          chmod a+x ${{ github.workspace }}/ci/vamp-wscript
-
-      - name: Set Environment Variables
-        shell: msys2 {0}
-        run: |
-          echo "HOME=${{ github.workspace }}/win64-build" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig" >> $GITHUB_ENV
-          echo "PATH=/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/c/Windows/System32" >> $GITHUB_ENV
-          echo "ARDOUR_WAF=${{ github.workspace }}/src/waf" >> $GITHUB_ENV
-
-      - name: Print Environment Info
-        shell: msys2 {0}
-        run: |
-          gcc --version
-          python3 --version
-          pkg-config --version
-          echo "==============================================="
-          env
-
-      - name: Install Perl Modules
-        shell: msys2 {0}
-        run: |
-          cpan -i XML::Parser
-          perl -e "require XML::Parser"
-
-      - name: Create Windows Build Configuration
-        shell: msys2 {0}
-        run: |
-          cd ${{ github.workspace }}/src
+          # 更新包数据库
+          pacman -Syu --noconfirm
           
-          cat > win32-config.wscript << 'EOF'
-          def configure(conf):
-              conf.env['DIST_TARGET'] = 'win64'
-              conf.env['windows'] = True
-              conf.env['msys2'] = True
-              
-              conf.env.append_value('CXXFLAGS', ['-DWIN32', '-D_WIN32', '-DWIN64'])
-              conf.env.append_value('CFLAGS', ['-DWIN32', '-D_WIN32', '-DWIN64'])
-              
-              conf.env.append_value('LIBPATH', ['/mingw64/lib'])
-              conf.env.append_value('INCLUDEPATH', ['/mingw64/include'])
-          EOF
+          # 安装 pactoys 用于简化包管理
+          pacman -S --noconfirm pactoys
+          
+          # 安装所有必需的依赖包
+          pacboy -S --noconfirm \
+            aubio:x \
+            boost:x \
+            curl:x \
+            drmingw:x \
+            flac:x \
+            fftw:x \
+            fontconfig:x \
+            gtkmm3:x \
+            libarchive:x \
+            libgnomecanvas:x \
+            liblo:x \
+            libogg:x \
+            libxml2:x \
+            lilv:x \
+            mcfgthread:x \
+            pango:x \
+            pangomm:x \
+            rubberband:x \
+            serd:x \
+            sord:x \
+            taglib:x \
+            vamp-plugin-sdk:x \
+            libusb:x \
+            libsndfile:x \
+            libsamplerate:x \
+            cairomm:x \
+            glibmm:x \
+            libzip:x \
+            portaudio:x \
+            portmidi:x \
+            rtmidi:x \
+            websocketpp:x \
+            openssl:x \
+            libpcre2:x \
+            libpcre2_16:x \
+            libpcre2_32:x
+            
+          # 安装 Perl 模块
+          cpan -i XML::Parser
 
+      # 4. 下载并构建 PortAudio (带 ASIO 支持)
+      - name: Build PortAudio with ASIO support
+        shell: msys2 {0}
+        run: |
+          cd ~
+          
+          # 克隆 PortAudio 仓库
+          git clone https://github.com/PortAudio/portaudio.git
+          cd portaudio
+          
+          # 下载 ASIO SDK (使用公共镜像)
+          curl -L -o asio_sdk.zip https://github.com/el-tocino/ASIOSDK2.3.3/raw/master/ASIOSDK2.3.3.zip
+          
+          # 创建构建目录
+          mkdir -p build
+          cd build
+          
+          # 配置 PortAudio
+          cmake .. \
+            -G "MSYS Makefiles" \
+            -DCMAKE_INSTALL_PREFIX=/mingw64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPA_BUILD_SHARED_LIBS=ON \
+            -DPA_USE_ASIO=ON \
+            -DPA_USE_DS=ON \
+            -DPA_USE_WASAPI=ON \
+            -DPA_USE_WDMKS=ON \
+            -DPA_USE_JACK=OFF \
+            -DASIO_SDK_ZIP_PATH=~/portaudio/asio_sdk.zip
+          
+          # 编译并安装
+          make -j$(nproc)
+          make install
+
+      # 5. 下载 Ardour 源码
+      - name: Download Ardour source code
+        shell: msys2 {0}
+        run: |
+          cd ~
+          git clone https://github.com/Ardour/ardour.git
+          cd ardour
+          
+          # 保存源码路径供后续步骤使用
+          echo "ARDOUR_SOURCE_DIR=~/ardour" >> $GITHUB_ENV
+
+      # 6. 应用源码补丁
+      - name: Apply source patches
+        shell: msys2 {0}
+        run: |
+          cd ~/ardour
+          
+          # 补丁 1: 注释弃用的线程函数
+          sed -i '89,91s/^/\/\//' libs/pbd/pbd.cc
+          sed -i '264,266s/^/\/\//' gtk2_ardour/main.cc
+          
+          # 补丁 2: 修复 FFTW 线程库链接
+          sed -i '679s/and bld.env/ \&\& False \&\& bld.env/' gtk2_ardour/wscript
+          sed -i '46s/and bld.env/ \&\& False \&\& bld.env/' libs/audiographer/wscript
+          
+          # 补丁 3: 修复平台检测以启用 SIMD
+          cat > fix_platform_detection.py << 'PYTHON_EOF'
+          import os
+          import re
+          
+          # 修复根目录 wscript
+          with open('wscript', 'r') as f:
+              content = f.read()
+          
+          content = re.sub(
+              r"if re\.search \('x86_64-w64', str\(conf\.env\['CC'\]\)\)",
+              'if re.search (r\'x86_64-w64\', os.popen(str(conf.env[\'CC\'][0]) + " -dumpmachine").read())',
+              content
+          )
+          
+          with open('wscript', 'w') as f:
+              f.write(content)
+          
+          # 修复 libs/ardour/wscript
+          with open('libs/ardour/wscript', 'r') as f:
+              content = f.read()
+          
+          content = re.sub(
+              r"if re\.search \('x86_64-w64', str\(bld\.env\['CC'\]\)\)",
+              'if re.search (r\'x86_64-w64\', os.popen(str(bld.env[\'CC\'][0]) + " -dumpmachine").read())',
+              content
+          )
+          
+          with open('libs/ardour/wscript', 'w') as f:
+              f.write(content)
+          
+          print("Platform detection fixes applied successfully")
+          PYTHON_EOF
+          
+          python3 fix_platform_detection.py
+
+      # 7. 配置构建
+      - name: Configure build
+        shell: msys2 {0}
+        run: |
+          cd ~/ardour
+          
+          # 设置编译标志
+          export CFLAGS="-Wno-incompatible-pointer-types -mstackrealign -O3"
+          export CXXFLAGS="-mstackrealign -O3"
+          export LDFLAGS="-static-libgcc -static-libstdc++"
+          
+          # 配置构建
+          ./waf configure \
+            --prefix=/mingw64 \
+            --configdir=./config \
+            --with-backends=portaudio,dummy \
+            --dist-target=mingw \
+            --cxx17 \
+            --optimize \
+            --ptformat \
+            --keepflags \
+            --freedesktop \
+            --no-phone-home \
+            --windows-vst \
+            --also-include=/mingw64/include/libusb-1.0
+          
+          # 保存配置状态
+          echo "Build configured successfully"
+
+      # 8. 编译项目
       - name: Compile Ardour
         shell: msys2 {0}
         run: |
-          cd ${{ github.workspace }}/src
+          cd ~/ardour
           
-          python3 ./waf configure \
-            --prefix=/mingw64 \
-            --configdir=./config \
-            --with-backends=jack,portaudio,dummy \
-            --ptformat \
-            --optimize \
-            --freedesktop \
-            --libjack=weak \
-            --windows-vst
+          # 获取 CPU 核心数
+          JOBS=$(nproc)
+          echo "Compiling with $JOBS parallel jobs"
           
-          python3 ./waf -j$(nproc)
+          # 编译（如果失败则重试一次）
+          ./waf build -j $JOBS || {
+            echo "First build attempt failed, retrying..."
+            ./waf build -j $JOBS
+          }
           
-          python3 ./waf i18n
-          
-          python3 ./waf install --destdir=${{ github.workspace }}/install
+          # 生成翻译文件
+          ./waf i18n_mo
 
-      - name: Create Windows Installer
+      # 9. 安装到临时目录
+      - name: Install Ardour
         shell: msys2 {0}
         run: |
-          cd ${{ github.workspace }}/src
+          cd ~/ardour
           
-          mkdir -p ${{ github.workspace }}/package/Ardour
+          # 创建安装目录
+          INSTALL_DIR="${{ github.workspace }}/ardour-install"
+          mkdir -p "$INSTALL_DIR"
           
-          cp -r ${{ github.workspace }}/install/mingw64/bin/* ${{ github.workspace }}/package/Ardour/ 2>/dev/null || true
-          cp -r ${{ github.workspace }}/install/mingw64/lib/* ${{ github.workspace }}/package/Ardour/ 2>/dev/null || true
-          cp -r ${{ github.workspace }}/install/mingw64/share/* ${{ github.workspace }}/package/Ardour/ 2>/dev/null || true
+          # 安装到指定目录
+          ./waf install --destdir="$INSTALL_DIR"
           
-          cd ${{ github.workspace }}/package/Ardour
+          # 复制额外的运行时依赖
+          mkdir -p "$INSTALL_DIR/mingw64/bin"
+          mkdir -p "$INSTALL_DIR/mingw64/lib"
           
-          for dll in ardour-*.exe; do
-            if [ -f "$dll" ]; then
-              ntldd -R $dll | grep "mingw64" | awk '{print $3}' | sort -u | while read -r dep; do
-                if [ -f "$dep" ]; then
-                  cp -n "$dep" . 2>/dev/null || true
-                fi
-              done
+          # 复制必要的 DLL
+          cp /mingw64/bin/lib{gcc_s_seh-1,stdc++-6,winpthread-1,fftw3f-3,gtk-win32-2.0-0,gdk-win32-2.0-0}.dll "$INSTALL_DIR/mingw64/bin/" 2>/dev/null || true
+          cp /mingw64/bin/lib{pangowin32-1.0-0,gio-2.0-0,gobject-2.0-0,glib-2.0-0,intl-8}.dll "$INSTALL_DIR/mingw64/bin/" 2>/dev/null || true
+          
+          echo "Installation completed to $INSTALL_DIR"
+
+      # 10. 创建启动脚本
+      - name: Create launcher scripts
+        shell: msys2 {0}
+        run: |
+          INSTALL_DIR="${{ github.workspace }}/ardour-install"
+          
+          # 创建批处理启动脚本
+          cat > "$INSTALL_DIR/run_ardour.bat" << 'EOF'
+          @echo off
+          setlocal
+          set PATH=%~dp0mingw64\bin;%~dp0mingw64\lib;%PATH%
+          set GTK_PATH=%~dp0mingw64\lib\gtk-2.0
+          set GDK_PIXBUF_MODULE_FILE=%~dp0mingw64\lib\gdk-pixbuf-2.0\2.10.0\loaders.cache
+          
+          start "" "%~dp0mingw64\bin\ardour8.exe" %*
+          EOF
+          
+          # 创建 PowerShell 启动脚本
+          cat > "$INSTALL_DIR/run_ardour.ps1" << 'EOF'
+          $env:PATH = "$PSScriptRoot\mingw64\bin;$PSScriptRoot\mingw64\lib;$env:PATH"
+          $env:GTK_PATH = "$PSScriptRoot\mingw64\lib\gtk-2.0"
+          Write-Host "Starting Ardour..." -ForegroundColor Green
+          Start-Process -FilePath "$PSScriptRoot\mingw64\bin\ardour8.exe" -ArgumentList $args
+          EOF
+
+      # 11. 打包为便携版
+      - name: Create portable package
+        shell: msys2 {0}
+        run: |
+          INSTALL_DIR="${{ github.workspace }}/ardour-install"
+          PACKAGE_DIR="${{ github.workspace }}/Ardour-Windows-Portable"
+          
+          # 复制文件到打包目录
+          mkdir -p "$PACKAGE_DIR"
+          cp -r "$INSTALL_DIR/mingw64" "$PACKAGE_DIR/"
+          cp "$INSTALL_DIR/run_ardour.bat" "$PACKAGE_DIR/"
+          cp "$INSTALL_DIR/run_ardour.ps1" "$PACKAGE_DIR/"
+          
+          # 创建 README
+          cat > "$PACKAGE_DIR/README.txt" << EOF
+          Ardour for Windows (Portable Edition)
+          
+          使用方法：
+          1. 双击 run_ardour.bat 启动 Ardour
+          2. 或在 PowerShell 中运行 .\run_ardour.ps1
+          
+          系统要求：
+          - Windows 10/11 64位
+          - 4GB RAM 或更多
+          - 支持 ASIO 的音频接口（推荐）
+          
+          特性：
+          - ✅ ASIO 驱动支持
+          - ✅ 多轨录音和混音
+          - ✅ VST 插件支持
+          - ✅ 无需安装，即开即用
+          
+          注意：首次启动可能需要几分钟初始化。
+          
+          本版本遵循 GPL v2 许可证
+          EOF
+          
+          # 创建 ZIP 压缩包
+          cd "${{ github.workspace }}"
+          7z a -tzip "Ardour-Windows-Portable.zip" "Ardour-Windows-Portable"
+          
+          # 创建 7z 压缩包（更小体积）
+          7z a "Ardour-Windows-Portable.7z" "Ardour-Windows-Portable"
+
+      # 12. 创建安装程序（使用 NSIS）
+      - name: Create NSIS installer
+        shell: msys2 {0}
+        run: |
+          INSTALL_DIR="${{ github.workspace }}/ardour-install"
+          
+          # 创建 NSIS 脚本
+          cat > "${{ github.workspace }}/ardour_installer.nsi" << 'NSIS_EOF'
+          ; Ardour Installer Script
+          !include "MUI2.nsh"
+          !include "x64.nsh"
+          
+          Name "Ardour"
+          OutFile "Ardour-Windows-Setup.exe"
+          InstallDir "$PROGRAMFILES64\Ardour"
+          RequestExecutionLevel admin
+          
+          !define MUI_ABORTWARNING
+          !define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
+          
+          !insertmacro MUI_PAGE_LICENSE "LICENSE"
+          !insertmacro MUI_PAGE_DIRECTORY
+          !insertmacro MUI_PAGE_INSTFILES
+          !insertmacro MUI_PAGE_FINISH
+          
+          !insertmacro MUI_LANGUAGE "English"
+          
+          Section "Ardour" SecMain
+              SetOutPath "$INSTDIR"
+              File /r "${{ github.workspace }}\ardour-install\mingw64\*.*"
+              File "run_ardour.bat"
+              
+              CreateDirectory "$SMPROGRAMS\Ardour"
+              CreateShortCut "$SMPROGRAMS\Ardour\Ardour.lnk" "$INSTDIR\bin\ardour8.exe"
+              CreateShortCut "$SMPROGRAMS\Ardour\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
+              CreateShortCut "$DESKTOP\Ardour.lnk" "$INSTDIR\bin\ardour8.exe"
+              
+              WriteUninstaller "$INSTDIR\Uninstall.exe"
+          SectionEnd
+          
+          Section "Uninstall"
+              Delete "$SMPROGRAMS\Ardour\Ardour.lnk"
+              Delete "$SMPROGRAMS\Ardour\Uninstall.lnk"
+              Delete "$DESKTOP\Ardour.lnk"
+              RMDir "$SMPROGRAMS\Ardour"
+              RMDir /r "$INSTDIR"
+          SectionEnd
+          NSIS_EOF
+          
+          # 编译 NSIS 安装程序
+          makensis "${{ github.workspace }}/ardour_installer.nsi"
+
+      # 13. 收集构建产物
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          
+          # 复制所有构建产物
+          cp "Ardour-Windows-Portable.zip" artifacts/ 2>/dev/null || true
+          cp "Ardour-Windows-Portable.7z" artifacts/ 2>/dev/null || true
+          cp "Ardour-Windows-Setup.exe" artifacts/ 2>/dev/null || true
+          
+          # 创建信息文件
+          cat > artifacts/BUILD_INFO.txt << EOF
+          Build Information
+          =================
+          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Architecture: x86_64
+          Platform: Windows
+          Build Type: ${{ github.event.inputs.build_type || 'release' }}
+          
+          Features:
+          - ASIO Audio Support
+          - VST Plugin Support
+          - Multi-track Recording
+          - Full Mixing Console
+          
+          SHA256 Checksums:
+          EOF
+          
+          # 生成校验和
+          cd artifacts
+          for file in *; do
+            if [ -f "$file" ]; then
+              sha256sum "$file" >> BUILD_INFO.txt
             fi
           done
           
-          cp /mingw64/bin/libgcc_s_seh-1.dll . 2>/dev/null || true
-          cp /mingw64/bin/libstdc++-6.dll . 2>/dev/null || true
-          cp /mingw64/bin/libwinpthread-1.dll . 2>/dev/null || true
-          cp /mingw64/bin/libgomp-1.dll . 2>/dev/null || true
-          
-          cat > run_ardour.bat << 'EOF'
-          @echo off
-          set PATH=%~dp0;%PATH%
-          start ardour-%ARDOUR_VERSION%.exe
-          EOF
+          cd ..
 
-      - name: Create NSIS Installer
-        shell: msys2 {0}
-        run: |
-          cd ${{ github.workspace }}/src/tools/windows_packaging
-          
-          if [ -f "ardour.nsi" ]; then
-            makensis -V2 \
-              -DARCH=64 \
-              -DVERSION=${{ env.ARDOUR_VERSION }} \
-              -DSRCDIR=${{ github.workspace }}/package/Ardour \
-              -DOUTFILE=${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.exe \
-              ardour.nsi
-          else
-            cd ${{ github.workspace }}/package
-            zip -r ${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.zip Ardour/
-          fi
-
-      - name: Package Portable Version
-        shell: msys2 {0}
-        run: |
-          cd ${{ github.workspace }}/package
-          
-          zip -r ${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64-portable.zip Ardour/
-          
-          7z a -tzip ${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.7z ./Ardour/
-
-      - name: Upload Binary
-        shell: bash
-        run: |
-          if [ -f "${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.exe" ]; then
-            TEMP_DOWNLOAD_URL=$(sh ${{ github.workspace }}/ci/services/${{ env.UPLOAD_SERVICE }}.sh ${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.exe)
-            echo "Download URL is $TEMP_DOWNLOAD_URL"
-          else
-            TEMP_DOWNLOAD_URL=$(sh ${{ github.workspace }}/ci/services/${{ env.UPLOAD_SERVICE }}.sh ${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.zip)
-            echo "Download URL is $TEMP_DOWNLOAD_URL"
-          fi
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v2
+      # 14. 上传为 GitHub Artifacts
+      - name: Upload artifacts
+        if: github.event.inputs.upload_artifact != 'false'
+        uses: actions/upload-artifact@v4
         with:
-          name: Ardour-Windows-Artifact
+          name: Ardour-Windows
           path: |
-            ${{ github.workspace }}/Ardour-*.exe
-            ${{ github.workspace }}/Ardour-*.zip
-            ${{ github.workspace }}/Ardour-*.7z
+            artifacts/*.zip
+            artifacts/*.7z
+            artifacts/*.exe
+            artifacts/BUILD_INFO.txt
+          compression-level: 9
+          retention-days: 90
 
+      # 15. 创建 GitHub Release（可选）
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/*.zip
+            artifacts/*.7z
+            artifacts/*.exe
+            artifacts/BUILD_INFO.txt
+          name: "Ardour for Windows"
+          body: |
+            ## Ardour Windows 构建
+            
+            包含以下版本：
+            - 便携版 (ZIP)
+            - 便携版 (7z，体积更小)
+            - 安装程序 (NSIS)
+            
+            ### 特性
+            - ✅ 原生 Windows 64位构建
+            - ✅ ASIO 驱动完整支持
+            - ✅ VST 2/3 插件支持
+            - ✅ 多轨录音和混音
+            - ✅ 专业级音频编辑
+            
+            ### 系统要求
+            - Windows 10/11 (64位)
+            - 4GB RAM (推荐 8GB+)
+            - 支持 ASIO 的音频接口
+          
+          draft: false
+          prerelease: false
+
+      # 16. 清理临时文件
       - name: Cleanup
         if: always()
         shell: msys2 {0}
         run: |
-          rm -rf ${{ github.workspace }}/src/.waf-*
-          rm -rf ${{ github.workspace }}/install
+          cd ~
+          rm -rf portaudio
+          rm -rf ardour/.waf-*
+          echo "Cleanup completed"
