@@ -1,0 +1,269 @@
+name: Ardour Build for Windows
+
+on:
+  push:
+    branches: 
+      - windows
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+  pull_request:
+    branches: 
+      - windows
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+  workflow_dispatch: 
+    types: ardour-windows-build
+
+env:
+  ARDOUR_VERSION: 6.9
+  UPLOAD_SERVICE: wetransfer.com
+  MSYSTEM: MINGW64
+  CHERE_INVOKING: 1
+
+jobs:
+  ardour-build:
+    name: Ardour Build for Windows
+    runs-on: windows-2019
+    
+    steps:
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: |
+            base-devel
+            git
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-python3
+            mingw-w64-x86_64-python3-pip
+            mingw-w64-x86_64-libxml2
+            mingw-w64-x86_64-libsndfile
+            mingw-w64-x86_64-libsamplerate
+            mingw-w64-x86_64-fftw
+            mingw-w64-x86_64-aubio
+            mingw-w64-x86_64-cairomm
+            mingw-w64-x86_64-gtkmm3
+            mingw-w64-x86_64-librubberband
+            mingw-w64-x86_64-lilv
+            mingw-w64-x86_64-serd
+            mingw-w64-x86_64-sord
+            mingw-w64-x86_64-sratom
+            mingw-w64-x86_64-lv2
+            mingw-w64-x86_64-vamp-plugin-sdk
+            mingw-w64-x86_64-curl
+            mingw-w64-x86_64-cppunit
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-glib2
+            mingw-w64-x86_64-glibmm
+            mingw-w64-x86_64-liblo
+            mingw-w64-x86_64-portaudio
+            mingw-w64-x86_64-websocketpp
+            mingw-w64-x86_64-usrsctp
+            mingw-w64-x86_64-libsrtp
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-readline
+            mingw-w64-x86_64-libpcre2
+            mingw-w64-x86_64-libpcre2_16
+            mingw-w64-x86_64-libpcre2_32
+            mingw-w64-x86_64-libpcre2-posix
+            mingw-w64-x86_64-libzip
+            mingw-w64-x86_64-taglib
+            mingw-w64-x86_64-ffmpeg
+            mingw-w64-x86_64-aom
+            mingw-w64-x86_64-dav1d
+            mingw-w64-x86_64-x264
+            mingw-w64-x86_64-x265
+            mingw-w64-x86_64-libvpx
+            mingw-w64-x86_64-opus
+            mingw-w64-x86_64-libvorbis
+            mingw-w64-x86_64-flac
+            mingw-w64-x86_64-libogg
+            mingw-w64-x86_64-speex
+            mingw-w64-x86_64-speexdsp
+            mingw-w64-x86_64-libsndfile
+            mingw-w64-x86_64-rtmidi
+            mingw-w64-x86_64-portmidi
+            mingw-w64-x86_64-libinstpatch
+            mingw-w64-x86_64-libltc
+            mingw-w64-x86_64-libwebsockets
+            mingw-w64-x86_64-ntldd-git
+            mingw-w64-x86_64-nsis
+
+      - name: Checkout Build Tools
+        uses: actions/checkout@v2
+        with:
+          repository: ${{ github.repository }}
+          fetch-depth: 0
+          ref: windows
+          path: '.'
+
+      - name: Get Ardour Latest Release Source Code
+        uses: actions/checkout@v2
+        with:
+          repository: 'Ardour/ardour'
+          fetch-depth: 1
+          ref: ${{ env.ARDOUR_VERSION }}
+          path: './src'
+
+      - name: Prepare Build Scripts
+        shell: msys2 {0}
+        run: |
+          chmod a+x ${{ github.workspace }}/ci/waf
+          chmod a+x ${{ github.workspace }}/ci/waf.bat
+          chmod a+x ${{ github.workspace }}/ci/win-wscript
+          chmod a+x ${{ github.workspace }}/ci/vamp-wscript
+
+      - name: Set Environment Variables
+        shell: msys2 {0}
+        run: |
+          echo "HOME=${{ github.workspace }}/win64-build" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig" >> $GITHUB_ENV
+          echo "PATH=/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/c/Windows/System32" >> $GITHUB_ENV
+          echo "ARDOUR_WAF=${{ github.workspace }}/src/waf" >> $GITHUB_ENV
+
+      - name: Print Environment Info
+        shell: msys2 {0}
+        run: |
+          gcc --version
+          python3 --version
+          pkg-config --version
+          echo "==============================================="
+          env
+
+      - name: Install Perl Modules
+        shell: msys2 {0}
+        run: |
+          cpan -i XML::Parser
+          perl -e "require XML::Parser"
+
+      - name: Create Windows Build Configuration
+        shell: msys2 {0}
+        run: |
+          cd ${{ github.workspace }}/src
+          
+          cat > win32-config.wscript << 'EOF'
+          def configure(conf):
+              conf.env['DIST_TARGET'] = 'win64'
+              conf.env['windows'] = True
+              conf.env['msys2'] = True
+              
+              conf.env.append_value('CXXFLAGS', ['-DWIN32', '-D_WIN32', '-DWIN64'])
+              conf.env.append_value('CFLAGS', ['-DWIN32', '-D_WIN32', '-DWIN64'])
+              
+              conf.env.append_value('LIBPATH', ['/mingw64/lib'])
+              conf.env.append_value('INCLUDEPATH', ['/mingw64/include'])
+          EOF
+
+      - name: Compile Ardour
+        shell: msys2 {0}
+        run: |
+          cd ${{ github.workspace }}/src
+          
+          python3 ./waf configure \
+            --prefix=/mingw64 \
+            --configdir=./config \
+            --with-backends=jack,portaudio,dummy \
+            --ptformat \
+            --optimize \
+            --freedesktop \
+            --libjack=weak \
+            --windows-vst
+          
+          python3 ./waf -j$(nproc)
+          
+          python3 ./waf i18n
+          
+          python3 ./waf install --destdir=${{ github.workspace }}/install
+
+      - name: Create Windows Installer
+        shell: msys2 {0}
+        run: |
+          cd ${{ github.workspace }}/src
+          
+          mkdir -p ${{ github.workspace }}/package/Ardour
+          
+          cp -r ${{ github.workspace }}/install/mingw64/bin/* ${{ github.workspace }}/package/Ardour/ 2>/dev/null || true
+          cp -r ${{ github.workspace }}/install/mingw64/lib/* ${{ github.workspace }}/package/Ardour/ 2>/dev/null || true
+          cp -r ${{ github.workspace }}/install/mingw64/share/* ${{ github.workspace }}/package/Ardour/ 2>/dev/null || true
+          
+          cd ${{ github.workspace }}/package/Ardour
+          
+          for dll in ardour-*.exe; do
+            if [ -f "$dll" ]; then
+              ntldd -R $dll | grep "mingw64" | awk '{print $3}' | sort -u | while read -r dep; do
+                if [ -f "$dep" ]; then
+                  cp -n "$dep" . 2>/dev/null || true
+                fi
+              done
+            fi
+          done
+          
+          cp /mingw64/bin/libgcc_s_seh-1.dll . 2>/dev/null || true
+          cp /mingw64/bin/libstdc++-6.dll . 2>/dev/null || true
+          cp /mingw64/bin/libwinpthread-1.dll . 2>/dev/null || true
+          cp /mingw64/bin/libgomp-1.dll . 2>/dev/null || true
+          
+          cat > run_ardour.bat << 'EOF'
+          @echo off
+          set PATH=%~dp0;%PATH%
+          start ardour-%ARDOUR_VERSION%.exe
+          EOF
+
+      - name: Create NSIS Installer
+        shell: msys2 {0}
+        run: |
+          cd ${{ github.workspace }}/src/tools/windows_packaging
+          
+          if [ -f "ardour.nsi" ]; then
+            makensis -V2 \
+              -DARCH=64 \
+              -DVERSION=${{ env.ARDOUR_VERSION }} \
+              -DSRCDIR=${{ github.workspace }}/package/Ardour \
+              -DOUTFILE=${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.exe \
+              ardour.nsi
+          else
+            cd ${{ github.workspace }}/package
+            zip -r ${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.zip Ardour/
+          fi
+
+      - name: Package Portable Version
+        shell: msys2 {0}
+        run: |
+          cd ${{ github.workspace }}/package
+          
+          zip -r ${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64-portable.zip Ardour/
+          
+          7z a -tzip ${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.7z ./Ardour/
+
+      - name: Upload Binary
+        shell: bash
+        run: |
+          if [ -f "${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.exe" ]; then
+            TEMP_DOWNLOAD_URL=$(sh ${{ github.workspace }}/ci/services/${{ env.UPLOAD_SERVICE }}.sh ${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.exe)
+            echo "Download URL is $TEMP_DOWNLOAD_URL"
+          else
+            TEMP_DOWNLOAD_URL=$(sh ${{ github.workspace }}/ci/services/${{ env.UPLOAD_SERVICE }}.sh ${{ github.workspace }}/Ardour-${{ env.ARDOUR_VERSION }}-win64.zip)
+            echo "Download URL is $TEMP_DOWNLOAD_URL"
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: Ardour-Windows-Artifact
+          path: |
+            ${{ github.workspace }}/Ardour-*.exe
+            ${{ github.workspace }}/Ardour-*.zip
+            ${{ github.workspace }}/Ardour-*.7z
+
+      - name: Cleanup
+        if: always()
+        shell: msys2 {0}
+        run: |
+          rm -rf ${{ github.workspace }}/src/.waf-*
+          rm -rf ${{ github.workspace }}/install
