@@ -40,7 +40,6 @@ jobs:
           mingw-w64-x86_64-liblo
           mingw-w64-x86_64-lilv
           mingw-w64-x86_64-libxml2
-          mingw-w64-x86_64-mcfgthreads
           mingw-w64-x86_64-pango
           mingw-w64-x86_64-pangomm
           mingw-w64-x86_64-rubberband
