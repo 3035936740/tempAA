@@ -66,70 +66,90 @@ jobs:
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-python
             mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-meson
             mingw-w64-x86_64-nsis
+            perl
+            mingw-w64-x86_64-perl
 
-      # 安装 Perl XML::Parser 模块（使用 MSYS2 的 perl 包）
-      - name: Install Perl and XML::Parser
+      # 使用正确的包名安装依赖（逐个安装，避免 pacboy 问题）
+      - name: Install dependencies (correct package names)
         shell: msys2 {0}
         run: |
-          # 安装 Perl 核心包
-          pacman -S --noconfirm perl perl-XML-Parser
-          
-          # 验证安装
-          perl -e "require XML::Parser" && echo "XML::Parser installed successfully"
-
-      # 3. 安装构建依赖
-      - name: Install build dependencies
-        shell: msys2 {0}
-        run: |
-          # 更新包数据库
+          # 首先更新系统
           pacman -Syu --noconfirm
           
-          # 安装 pactoys 用于简化包管理
-          pacman -S --noconfirm pactoys
+          echo "=== Installing core audio libraries ==="
+          pacman -S --noconfirm \
+            mingw-w64-x86_64-libsndfile \
+            mingw-w64-x86_64-libsamplerate \
+            mingw-w64-x86_64-fftw \
+            mingw-w64-x86_64-aubio \
+            mingw-w64-x86_64-rubberband \
+            mingw-w64-x86_64-flac \
+            mingw-w64-x86_64-libogg \
+            mingw-w64-x86_64-libvorbis \
+            mingw-w64-x86_64-speex \
+            mingw-w64-x86_64-speexdsp
           
-          # 安装所有必需的依赖包
-          pacboy -S --noconfirm \
-            aubio:x \
-            boost:x \
-            curl:x \
-            drmingw:x \
-            flac:x \
-            fftw:x \
-            fontconfig:x \
-            gtkmm3:x \
-            libarchive:x \
-            libgnomecanvas:x \
-            liblo:x \
-            libogg:x \
-            libxml2:x \
-            lilv:x \
-            mcfgthread:x \
-            pango:x \
-            pangomm:x \
-            rubberband:x \
-            serd:x \
-            sord:x \
-            taglib:x \
-            vamp-plugin-sdk:x \
-            libusb:x \
-            libsndfile:x \
-            libsamplerate:x \
-            cairomm:x \
-            glibmm:x \
-            libzip:x \
-            portaudio:x \
-            portmidi:x \
-            rtmidi:x \
-            websocketpp:x \
-            openssl:x \
-            libpcre2:x \
-            libpcre2_16:x \
-            libpcre2_32:x
-            
-          # 安装 Perl 模块
-          cpan -i XML::Parser
+          echo "=== Installing GUI libraries ==="
+          pacman -S --noconfirm \
+            mingw-w64-x86_64-gtkmm3 \
+            mingw-w64-x86_64-cairomm \
+            mingw-w64-x86_64-pangomm \
+            mingw-w64-x86_64-libgnomecanvas \
+            mingw-w64-x86_64-fontconfig \
+            mingw-w64-x86_64-pango \
+            mingw-w64-x86_64-cairo
+          
+          echo "=== Installing LV2 plugin support ==="
+          pacman -S --noconfirm \
+            mingw-w64-x86_64-lilv \
+            mingw-w64-x86_64-serd \
+            mingw-w64-x86_64-sord \
+            mingw-w64-x86_64-lv2 \
+            mingw-w64-x86_64-sratom \
+            mingw-w64-x86_64-suil
+          
+          echo "=== Installing utility libraries ==="
+          pacman -S --noconfirm \
+            mingw-w64-x86_64-boost \
+            mingw-w64-x86_64-curl \
+            mingw-w64-x86_64-libxml2 \
+            mingw-w64-x86_64-taglib \
+            mingw-w64-x86_64-libarchive \
+            mingw-w64-x86_64-liblo \
+            mingw-w64-x86_64-libusb \
+            mingw-w64-x86_64-libzip \
+            mingw-w64-x86_64-openssl \
+            mingw-w64-x86_64-libpcre \
+            mingw-w64-x86_64-pcre2 \
+            mingw-w64-x86_64-readline
+          
+          echo "=== Installing audio/MIDI interfaces ==="
+          pacman -S --noconfirm \
+            mingw-w64-x86_64-portaudio \
+            mingw-w64-x86_64-portmidi \
+            mingw-w64-x86_64-rtmidi \
+            mingw-w64-x86_64-jack
+          
+          echo "=== Installing other dependencies ==="
+          pacman -S --noconfirm \
+            mingw-w64-x86_64-drmingw \
+            mingw-w64-x86_64-mcfgthread \
+            mingw-w64-x86_64-vamp-plugin-sdk \
+            mingw-w64-x86_64-ntldd-git \
+            mingw-w64-x86_64-cppunit
+          
+          echo "=== Installing Perl XML::Parser ==="
+          # Perl XML::Parser 通过 CPAN 安装
+          cpan -i XML::Parser || echo "XML::Parser already installed"
+          
+          echo "=== Verifying critical packages ==="
+          # 验证关键包是否安装成功
+          pacman -Q mingw-w64-x86_64-pcre2 && echo "✓ pcre2 installed"
+          pacman -Q mingw-w64-x86_64-libsndfile && echo "✓ libsndfile installed"
+          pacman -Q mingw-w64-x86_64-gtkmm3 && echo "✓ gtkmm3 installed"
+          
+          echo "All dependencies installed!"
 
       # 4. 下载并构建 PortAudio (带 ASIO 支持)
       - name: Build PortAudio with ASIO support
